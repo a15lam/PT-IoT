@@ -9,6 +9,7 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <WiFiManager.h>
+#include <PubSubClient.h>
 #include <DNSServer.h>    
 #include <Credential.h>
 #include <FS.h>
@@ -35,6 +36,50 @@ const int relay = 12;
 const int led = 13;
 const int button = 0;
 int ledState = HIGH;           // the current state of the output pin
+
+//-----MQTT SETUP BEGIN----------
+WiFiClient espClient;
+PubSubClient client(espClient);
+void mqttCallback(char* topic, byte* payload, unsigned int length){
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Switch on the LED if an 1 was received as first character
+  if ((char)payload[0] == '1') {
+    digitalWrite(led, LOW);
+    digitalWrite(relay, HIGH);
+  } else {
+    digitalWrite(led, HIGH);
+    digitalWrite(relay, LOW);
+  }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP8266Client", MQTT_USER, MQTT_PASS)) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      client.publish("outTopic", "hello from PT switch");
+      // ... and resubscribe
+      client.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+//-----MQTT SETUP END----------
 
 Bounce toggle = Bounce();
 Bounce restart = Bounce();
@@ -141,6 +186,11 @@ void setup() {
   Serial.println("Connected! Local IP");
   Serial.println(WiFi.localIP());
   digitalWrite(led, HIGH);
+
+  //-----MQTT SETUP BEGIN----------
+  client.setServer(MQTT_BROKER, MQTT_PORT);
+  client.setCallback(mqttCallback);
+  //-----MQTT SETUP END----------
 
   strcpy(DEVICE_NAME, device_name_param.getValue());
   // save the custom parameters to FS
@@ -259,6 +309,13 @@ void setup() {
 // Loop function
 //================================================================================================
 void loop() {
+  //-----MQTT SETUP BEGIN----------
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  //-----MQTT SETUP END----------
+  
   //----------------------------------------------------------------------------------------------
   // OTA handler
   ArduinoOTA.handle();

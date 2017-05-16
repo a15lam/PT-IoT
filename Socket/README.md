@@ -8,10 +8,14 @@ Create a <code>Credential.h</code> file in your Arduino IDE setup at Arduino/lib
     
     #define OTA_PASS "secret"
     #define AP_PASS "secret"
+    #define MQTT_BROKER "mqtt.example.com"
+	#define MQTT_PORT 1883
+	#define MQTT_USER "username"
+	#define MQTT_PASS "password"
 
-Or alternatively, comment out line 13: <code>#include <Credential.h></code> and define the two passwords above in the code.
+Or alternatively, comment out line 14: <code>#include <Credential.h></code> and define the configuration above in the code.
 The <code>OTA_PASS</code> is the password for performing Over The Air (WiFi) firmware update. And <code>AP_PASS</code> is the 
-password for connecting to the device in AP mode and configure it to connect to your WiFi SSID.
+password for connecting to the device in AP mode and configure it to connect to your WiFi SSID. Rest of the configurations are self-explanatory.
 
 Make necessary changes for PIN assignment, compile, and flash onto your device using Arduino IDE.
 
@@ -28,7 +32,7 @@ Once connected to your WiFi network, it can be controlled over HTTP using follow
     GET http://<device-ip>/switch/state
     
 Note: you can find the device IP address from the Arduino serial monitor while connecting to WiFi. Or you can always perform a 
-SSDP m-search and discover this device in your network.
+SSDP m-search and discover this device in your network. If MQTT is configured then it will subscribe to topic "inTopic".
 
 Manual operation is also supported using a button.
 
