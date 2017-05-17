@@ -9,9 +9,11 @@ Create a <code>Credential.h</code> file in your Arduino IDE setup at Arduino/lib
     #define OTA_PASS "secret"
     #define AP_PASS "secret"
     #define MQTT_BROKER "mqtt.example.com"
-	#define MQTT_PORT 1883
-	#define MQTT_USER "username"
-	#define MQTT_PASS "password"
+    #define MQTT_PORT 1883
+    #define MQTT_USER "username"
+    #define MQTT_PASS "password"
+    #define MQTT_X509_FINGERPRINT "XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX"
+
 
 Or alternatively, comment out line 14: <code>#include <Credential.h></code> and define the configuration above in the code.
 The <code>OTA_PASS</code> is the password for performing Over The Air (WiFi) firmware update. And <code>AP_PASS</code> is the 
