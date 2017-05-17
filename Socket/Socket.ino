@@ -37,8 +37,8 @@ const int led = 13;
 const int button = 0;
 int ledState = HIGH;           // the current state of the output pin
 
-//-----MQTT SETUP BEGIN----------
-WiFiClient espClient;
+//========================[ MQTT Begin ]========================
+WiFiClientSecure espClient;
 PubSubClient client(espClient);
 void mqttCallback(char* topic, byte* payload, unsigned int length){
   Serial.print("Message arrived [");
@@ -59,13 +59,17 @@ void mqttCallback(char* topic, byte* payload, unsigned int length){
   }
 }
 
-void reconnect() {
+void reconnect(String clientName) {
   // Loop until we're reconnected
   while (!client.connected()) {
+    Serial.print("Client ID:");
+    Serial.println(clientName.c_str());
     Serial.print("Attempting MQTT connection...");
+   
     // Attempt to connect
-    if (client.connect("ESP8266Client", MQTT_USER, MQTT_PASS)) {
+    if (client.connect(clientName.c_str(), MQTT_USER, MQTT_PASS)) {
       Serial.println("connected");
+      blinkLed(3, true);
       // Once connected, publish an announcement...
       client.publish("outTopic", "hello from PT switch");
       // ... and resubscribe
@@ -79,7 +83,18 @@ void reconnect() {
     }
   }
 }
-//-----MQTT SETUP END----------
+String macToStr(const uint8_t* mac)
+{
+  String result;
+  for (int i = 0; i < 6; ++i) {
+    result += String(mac[i], 16);
+    if (i < 5)
+      result += ':';
+  }
+  return result;
+}
+String mqttClientName;
+//========================[ MQTT End ]========================
 
 Bounce toggle = Bounce();
 Bounce restart = Bounce();
@@ -187,10 +202,26 @@ void setup() {
   Serial.println(WiFi.localIP());
   digitalWrite(led, HIGH);
 
-  //-----MQTT SETUP BEGIN----------
+  //========================[ MQTT Begin ]========================
+  if (!espClient.connect(MQTT_BROKER, MQTT_PORT)) {
+    Serial.println("connection failed");
+    //return;
+  }
+  if (espClient.verify(MQTT_X509_FINGERPRINT, MQTT_BROKER)) {
+    Serial.println("certificate matches");
+  } else {
+    Serial.println("certificate doesn't match");
+  }
   client.setServer(MQTT_BROKER, MQTT_PORT);
   client.setCallback(mqttCallback);
-  //-----MQTT SETUP END----------
+  
+  mqttClientName += "esp8266-";
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  mqttClientName += macToStr(mac);
+  mqttClientName += "-";
+  mqttClientName += String(micros() & 0xff, 16);
+  //=========================[ MQTT End ]=========================
 
   strcpy(DEVICE_NAME, device_name_param.getValue());
   // save the custom parameters to FS
@@ -309,12 +340,13 @@ void setup() {
 // Loop function
 //================================================================================================
 void loop() {
-  //-----MQTT SETUP BEGIN----------
+  //----------------------------------------------------------------------------------------------
+  // MQTT connection handling
   if (!client.connected()) {
-    reconnect();
+    reconnect(mqttClientName);
   }
   client.loop();
-  //-----MQTT SETUP END----------
+  //----------------------------------------------------------------------------------------------
   
   //----------------------------------------------------------------------------------------------
   // OTA handler
