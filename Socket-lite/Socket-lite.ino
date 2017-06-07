@@ -5,7 +5,6 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266SSDP.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <WiFiManager.h>
@@ -32,14 +31,16 @@
 char OTA_HOST_NAME[100];
 char DEVICE_NAME[51];
 bool saveConfig = false;
-const int relay = 12;
-const int led = 13;
+const int relay = 13;
+const int led = 4;
 const int button = 0;
-int ledState = HIGH;           // the current state of the output pin
+int ledReversed = 0;          // If LED is reversed use 1 or else use 0
+int relayState = LOW;         // the current state of the relay
 
 //========================[ MQTT Begin ]========================
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
+
 void mqttCallback(char* topic, byte* payload, unsigned int length){
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -51,11 +52,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length){
 
   // Switch on the LED if an 1 was received as first character
   if ((char)payload[0] == '1') {
-    digitalWrite(led, LOW);
-    digitalWrite(relay, HIGH);
+    relayOn();
   } else {
-    digitalWrite(led, HIGH);
-    digitalWrite(relay, LOW);
+    relayOff();
   }
 }
 
@@ -130,17 +129,17 @@ void saveConfigCallback () {
   saveConfig = true;
 }
 void configModeCallback (WiFiManager *myWiFiManager) {
-  digitalWrite(led, LOW);
+  writeLed(HIGH);
 }
 void blinkLed(int times, bool fast){
   while(times > 0){
-    digitalWrite(led, LOW);
+    writeLed(HIGH);
     if(fast == true){
       delay(100);
     } else {
       delay(300);
     }
-    digitalWrite(led, HIGH);
+    writeLed(LOW);
     if(fast == true){
       delay(100);
     } else {
@@ -148,6 +147,26 @@ void blinkLed(int times, bool fast){
     }
     times--;  
   }
+}
+
+void writeLed(int flag) {
+  if(ledReversed == 1) {
+    digitalWrite(led, !flag);
+  } else {
+    digitalWrite(led, flag);
+  }
+}
+
+void relayOn() {
+  writeLed(HIGH);
+  digitalWrite(relay, HIGH);
+  relayState = HIGH;
+}
+
+void relayOff() {
+  writeLed(LOW);
+  digitalWrite(relay, LOW);
+  relayState = LOW;
 }
 
 ESP8266WebServer HTTP(80);
@@ -169,8 +188,8 @@ void setup() {
   //----------------------------------------------------------------------------------------------
   // Initialize LED pin
   //
-  pinMode(led, OUTPUT);    //Green LED (reverse)
-  digitalWrite(led, HIGH);
+  pinMode(led, OUTPUT);
+  writeLed(LOW);
   //----------------------------------------------------------------------------------------------
 
   //----------------------------------------------------------------------------------------------
@@ -225,7 +244,7 @@ void setup() {
 
   Serial.println("Connected! Local IP");
   Serial.println(WiFi.localIP());
-  digitalWrite(led, HIGH);
+  writeLed(LOW);
 
   //========================[ MQTT Begin ]========================
   if (!espClient.connect(MQTT_BROKER, MQTT_PORT)) {
@@ -308,17 +327,14 @@ void setup() {
   //----------------------------------------------------------------------------------------------
   // Setup HTTP operation APIs
   //
+  
   Serial.println("starting HTTP...");
   HTTP.on("/switch/on", HTTP_GET, [](){
-    ledState = LOW;
-    digitalWrite(relay, !ledState);
-    digitalWrite(led, ledState);
+    relayOn();
     HTTP.send(200, "application/json", "{\"switch\":1}");
   });
   HTTP.on("/switch/off", HTTP_GET, [](){
-    ledState = HIGH;
-    digitalWrite(relay, !ledState);
-    digitalWrite(led, ledState);
+    relayOff();
     HTTP.send(200, "application/json", "{\"switch\":0}");
   });
   HTTP.on("/switch/state", HTTP_GET, [](){
@@ -329,29 +345,9 @@ void setup() {
       HTTP.send(200, "application/json", "{\"switch\":0}");
     }
   });
-  HTTP.on("/description.xml", HTTP_GET, [](){
-    SSDP.schema(HTTP.client());
-  });
   HTTP.begin();
   //----------------------------------------------------------------------------------------------
 
-  //----------------------------------------------------------------------------------------------
-  // Setup SSDP feature
-  //
-  Serial.println("starting SSDP...");
-  SSDP.setSchemaURL("description.xml");
-  SSDP.setHTTPPort(80);
-  SSDP.setDeviceType("urn:peach:device:Basic:1");
-  SSDP.setName(DEVICE_NAME);
-  SSDP.setSerialNumber(SERIAL_NUM);
-  SSDP.setURL("index.html");
-  SSDP.setModelName(DEVICE_MODEL); 
-  SSDP.setModelNumber(DEVICE_MODEL_NUM);
-  SSDP.setModelURL("https://www.peach-tech.com");
-  SSDP.setManufacturer("PeachTech");
-  SSDP.setManufacturerURL("https://www.peach-tech.com");
-  SSDP.begin();
-  //----------------------------------------------------------------------------------------------
 
   Serial.println("Ready!");
   blinkLed(3, false);
@@ -365,10 +361,12 @@ void setup() {
 void loop() {
   //----------------------------------------------------------------------------------------------
   // MQTT connection handling
+  
   if (!client.connected()) {
     reconnect(mqttClientName);
+  } else {
+    client.loop();
   }
-  client.loop();
   //----------------------------------------------------------------------------------------------
   
   //----------------------------------------------------------------------------------------------
@@ -400,7 +398,7 @@ void loop() {
 
   if(restart.fell()){
     // restart triggered.
-    digitalWrite(led, LOW);
+    writeLed(HIGH);
   }
   if(restart.rose()){
     Serial.println("restarting device...");
@@ -409,14 +407,14 @@ void loop() {
   }
   
   if(toggle.rose()){
-    ledState = !ledState;
-    if(ledState == HIGH){
+    relayState = !relayState;
+    if(relayState == LOW){
       Serial.println("toggling device Off");
+      relayOff();
     } else {
       Serial.println("toggling device On");
+      relayOn();
     }
-    digitalWrite(led, ledState);
-    digitalWrite(relay, !ledState);
   }
   //----------------------------------------------------------------------------------------------
 }
