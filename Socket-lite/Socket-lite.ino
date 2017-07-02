@@ -41,7 +41,8 @@ int relayState = LOW;         // the current state of the relay
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
-void mqttCallback(char* topic, byte* payload, unsigned int length){
+void mqttCallback(char* topic, byte* payload, unsigned int length)
+{
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
@@ -58,7 +59,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length){
   }
 }
 
-void reconnect(String clientName) {
+void reconnect(String clientName) 
+{
   // Loop until we're reconnected
   while (!client.connected()) {
     Serial.print("Client ID:");
@@ -69,28 +71,32 @@ void reconnect(String clientName) {
     if (client.connect(clientName.c_str(), MQTT_USER, MQTT_PASS)) {
       Serial.println("connected");
       blinkLed(3, true);
-      String mac = getMacAddress();
-      char macAddress[18];
-      mac.toCharArray(macAddress, 18);
-      char topic[26];
-      sprintf(topic, "%s/%s/%s/%s", DEVICE_PREFIX, DEVICE_TYPE, DEVICE_MODEL_NUM, macAddress);
-      IPAddress localIp = WiFi.localIP();
-      char bufIp[16];
-      sprintf(bufIp, "%d.%d.%d.%d", localIp[0], localIp[1], localIp[2], localIp[3] );
-      String payload = "{\"name\":\"" + String(DEVICE_NAME) + "\",\"prefix\":\"" + String(DEVICE_PREFIX) + "\",\"type\":\"" + String(DEVICE_TYPE) + "\",\"model\":\"" + String(DEVICE_MODEL_NUM) + "\",\"mac\":\"" + String(mac) + "\",\"lan_ip\":\"" + String(bufIp) + "\",\"sub_topic\":\"" + String(topic) + "\"}";
+
+      String controlTopic = getControlTopic();
+      int controlTopicLength = controlTopic.length() + 1;
+      char controlTopicChar[controlTopicLength];
+      controlTopic.toCharArray(controlTopicChar, controlTopicLength); 
       
+      String payload = getRegisterPayload(controlTopic);
       // Once connected, publish an announcement...
       Serial.print("Payload:");
       Serial.println(payload);
-      int c = payload.length() + 1;
-      char myPayload[c];
-      payload.toCharArray(myPayload, c);
+      
+      int payloadLength = payload.length() + 1;
+      char payloadChar[payloadLength];
+      payload.toCharArray(payloadChar, payloadLength);
+     
+      String registerTopic = getRegisterTopic();
+      int registerTopicLength = registerTopic.length() + 1;
+      char registerTopicChar[registerTopicLength];
+      registerTopic.toCharArray(registerTopicChar, registerTopicLength);
+      
       // NOTE: Change MQTT_MAX_PACKET_SIZE in PubSubClient.h to 256 (from 128). Otherwise publish won't work. 
-      client.publish("PT/Register", myPayload);
+      client.publish(registerTopicChar, payloadChar);
       
       Serial.print("Subscribing to topic:");
-      Serial.println(topic);
-      client.subscribe(topic);
+      Serial.println(controlTopicChar);
+      client.subscribe(controlTopicChar);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -100,6 +106,7 @@ void reconnect(String clientName) {
     }
   }
 }
+
 String macToStr(const uint8_t* mac)
 {
   String result;
@@ -117,6 +124,38 @@ String getMacAddress()
   return macToStr(mac);
 }
 
+String getControlTopic() 
+{
+  String mac = getMacAddress();
+  String topic = String(DEVICE_PREFIX) + "/" + String(DEVICE_TYPE) + "/" + String(DEVICE_MODEL_NUM) + "/" + mac;
+  
+  return topic;
+}
+
+String getRegisterTopic()
+{
+  String topic = String(DEVICE_PREFIX) + "/Register";
+
+  return topic;
+}
+
+String getRegisterPayload(String controlTopic) 
+{
+  String mac = getMacAddress();
+  IPAddress localIp = WiFi.localIP();
+  char bufIp[16];
+  sprintf(bufIp, "%d.%d.%d.%d", localIp[0], localIp[1], localIp[2], localIp[3] );
+  String payload = "{\"name\":\"" + String(DEVICE_NAME) + 
+                    "\",\"prefix\":\"" + String(DEVICE_PREFIX) + 
+                    "\",\"type\":\"" + String(DEVICE_TYPE) + 
+                    "\",\"model\":\"" + String(DEVICE_MODEL_NUM) + 
+                    "\",\"mac\":\"" + mac + 
+                    "\",\"lan_ip\":\"" + String(bufIp) + 
+                    "\",\"sub_topic\":\"" + controlTopic + "\"}";
+
+  return payload;
+}
+
 String mqttClientName;
 //========================[ MQTT End ]========================
 
@@ -124,14 +163,19 @@ Bounce toggle = Bounce();
 Bounce restart = Bounce();
 Bounce reset = Bounce();
 
-void saveConfigCallback () {
+void saveConfigCallback () 
+{
   Serial.println("should save config");
   saveConfig = true;
 }
-void configModeCallback (WiFiManager *myWiFiManager) {
+
+void configModeCallback (WiFiManager *myWiFiManager) 
+{
   writeLed(HIGH);
 }
-void blinkLed(int times, bool fast){
+
+void blinkLed(int times, bool fast)
+{
   while(times > 0){
     writeLed(HIGH);
     if(fast == true){
@@ -149,7 +193,8 @@ void blinkLed(int times, bool fast){
   }
 }
 
-void writeLed(int flag) {
+void writeLed(int flag) 
+{
   if(ledReversed == 1) {
     digitalWrite(led, !flag);
   } else {
@@ -157,13 +202,15 @@ void writeLed(int flag) {
   }
 }
 
-void relayOn() {
+void relayOn() 
+{
   writeLed(HIGH);
   digitalWrite(relay, HIGH);
   relayState = HIGH;
 }
 
-void relayOff() {
+void relayOff() 
+{
   writeLed(LOW);
   digitalWrite(relay, LOW);
   relayState = LOW;
@@ -177,7 +224,8 @@ WiFiManager wifiManager;
 //================================================================================================
 // Setup function
 //================================================================================================
-void setup() {
+void setup() 
+{
   //----------------------------------------------------------------------------------------------
   // Initialize serial communication
   //
@@ -358,7 +406,8 @@ void setup() {
 //================================================================================================
 // Loop function
 //================================================================================================
-void loop() {
+void loop() 
+{
   //----------------------------------------------------------------------------------------------
   // MQTT connection handling
   

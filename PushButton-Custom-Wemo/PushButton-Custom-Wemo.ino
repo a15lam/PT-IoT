@@ -1,29 +1,29 @@
 //================================================================================================
-// Power Adapter Socket based on ESP8266
+// PBS: Push Button Switch based on ESP8266
 //================================================================================================
 
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266SSDP.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <WiFiManager.h>
 #include <PubSubClient.h>
 #include <DNSServer.h>    
-#include <Credential.h>
+#include <Secrets.h>
 #include <FS.h>
 #include <ArduinoJson.h>
 #include <Bounce2.h>
+#include "fauxmoESP.h"
 
 //================================================================================================
 // Defined constants
 //================================================================================================
 #define SERIAL_NUM "00001"
-#define DEVICE_PREFIX "PT"
-#define DEVICE_TYPE "SOCKET"
-#define DEVICE_MODEL "Peach Socket"
-#define DEVICE_MODEL_NUM "SO001"
+#define DEVICE_PREFIX "AI"
+#define DEVICE_TYPE "PBUTTON"
+#define DEVICE_MODEL "PushButton"
+#define DEVICE_MODEL_NUM "PB001"
 //================================================================================================
 
 //================================================================================================
@@ -35,112 +35,36 @@ bool saveConfig = false;
 const int relay = 12;
 const int led = 13;
 const int button = 0;
-int ledState = HIGH;           // the current state of the output pin
-
-//========================[ MQTT Begin ]========================
-WiFiClientSecure espClient;
-PubSubClient client(espClient);
-void mqttCallback(char* topic, byte* payload, unsigned int length){
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-
-  // Switch on the LED if an 1 was received as first character
-  if ((char)payload[0] == '1') {
-    digitalWrite(led, LOW);
-    digitalWrite(relay, HIGH);
-  } else {
-    digitalWrite(led, HIGH);
-    digitalWrite(relay, LOW);
-  }
-}
-
-void reconnect(String clientName) {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Client ID:");
-    Serial.println(clientName.c_str());
-    Serial.print("Attempting MQTT connection...");
-   
-    // Attempt to connect
-    if (client.connect(clientName.c_str(), MQTT_USER, MQTT_PASS)) {
-      Serial.println("connected");
-      blinkLed(3, true);
-      String mac = getMacAddress();
-      char macAddress[18];
-      mac.toCharArray(macAddress, 18);
-      char topic[26];
-      sprintf(topic, "%s/%s/%s/%s", DEVICE_PREFIX, DEVICE_TYPE, DEVICE_MODEL_NUM, macAddress);
-      IPAddress localIp = WiFi.localIP();
-      char bufIp[16];
-      sprintf(bufIp, "%d.%d.%d.%d", localIp[0], localIp[1], localIp[2], localIp[3] );
-      String payload = "{\"name\":\"" + String(DEVICE_NAME) + "\",\"prefix\":\"" + String(DEVICE_PREFIX) + "\",\"type\":\"" + String(DEVICE_TYPE) + "\",\"model\":\"" + String(DEVICE_MODEL_NUM) + "\",\"mac\":\"" + String(mac) + "\",\"lan_ip\":\"" + String(bufIp) + "\",\"sub_topic\":\"" + String(topic) + "\"}";
-      
-      // Once connected, publish an announcement...
-      Serial.print("Payload:");
-      Serial.println(payload);
-      int c = payload.length() + 1;
-      char myPayload[c];
-      payload.toCharArray(myPayload, c);
-      // NOTE: Change MQTT_MAX_PACKET_SIZE in PubSubClient.h to 256 (from 128). Otherwise publish won't work. 
-      client.publish("PT/Register", myPayload);
-      
-      Serial.print("Subscribing to topic:");
-      Serial.println(topic);
-      client.subscribe(topic);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
-}
-String macToStr(const uint8_t* mac)
-{
-  String result;
-  for (int i = 0; i < 6; ++i) {
-    result += String(mac[i], 16);
-    if (i < 5)
-      result += ':';
-  }
-  return result;
-}
-String getMacAddress()
-{
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  return macToStr(mac);
-}
-
-String mqttClientName;
-//========================[ MQTT End ]========================
+int ledReversed = 1;          // If LED is reversed use 1 or else use 0
+int relayState = LOW;         // the current state of the relay
+int intRelayState = LOW;
+fauxmoESP fauxmo;
 
 Bounce toggle = Bounce();
 Bounce restart = Bounce();
 Bounce reset = Bounce();
 
-void saveConfigCallback () {
+void saveConfigCallback () 
+{
   Serial.println("should save config");
   saveConfig = true;
 }
-void configModeCallback (WiFiManager *myWiFiManager) {
-  digitalWrite(led, LOW);
+
+void configModeCallback (WiFiManager *myWiFiManager) 
+{
+  writeLed(HIGH);
 }
-void blinkLed(int times, bool fast){
+
+void blinkLed(int times, bool fast)
+{
   while(times > 0){
-    digitalWrite(led, LOW);
+    writeLed(HIGH);
     if(fast == true){
       delay(100);
     } else {
       delay(300);
     }
-    digitalWrite(led, HIGH);
+    writeLed(LOW);
     if(fast == true){
       delay(100);
     } else {
@@ -148,6 +72,32 @@ void blinkLed(int times, bool fast){
     }
     times--;  
   }
+}
+
+void wemoCallback(const char * deviceName, bool state) 
+{
+  Serial.print("Wemo emulating: "); 
+  Serial.print(deviceName);
+  Serial.print(" State: ");
+  Serial.println(state);
+  pushButtonRelay();
+}
+
+void writeLed(int flag) 
+{
+  if(ledReversed == 1) {
+    digitalWrite(led, !flag);
+  } else {
+    digitalWrite(led, flag);
+  }
+}
+
+void pushButtonRelay(){
+  relayState =  !relayState;
+  Serial.println("Turning on relay");
+  digitalWrite(relay, HIGH);
+  intRelayState = HIGH;
+  writeLed(relayState);
 }
 
 ESP8266WebServer HTTP(80);
@@ -158,7 +108,8 @@ WiFiManager wifiManager;
 //================================================================================================
 // Setup function
 //================================================================================================
-void setup() {
+void setup() 
+{
   //----------------------------------------------------------------------------------------------
   // Initialize serial communication
   //
@@ -169,8 +120,8 @@ void setup() {
   //----------------------------------------------------------------------------------------------
   // Initialize LED pin
   //
-  pinMode(led, OUTPUT);    //Green LED (reverse)
-  digitalWrite(led, HIGH);
+  pinMode(led, OUTPUT);
+  writeLed(LOW);
   //----------------------------------------------------------------------------------------------
 
   //----------------------------------------------------------------------------------------------
@@ -225,26 +176,7 @@ void setup() {
 
   Serial.println("Connected! Local IP");
   Serial.println(WiFi.localIP());
-  digitalWrite(led, HIGH);
-
-  //========================[ MQTT Begin ]========================
-  if (!espClient.connect(MQTT_BROKER, MQTT_PORT)) {
-    Serial.println("connection failed");
-    //return;
-  }
-  if (espClient.verify(MQTT_X509_FINGERPRINT, MQTT_BROKER)) {
-    Serial.println("certificate matches");
-  } else {
-    Serial.println("certificate doesn't match");
-  }
-  client.setServer(MQTT_BROKER, MQTT_PORT);
-  client.setCallback(mqttCallback);
-  
-  mqttClientName += "esp8266-";
-  mqttClientName += getMacAddress();
-  mqttClientName += "-";
-  mqttClientName += String(micros() & 0xff, 16);
-  //=========================[ MQTT End ]=========================
+  writeLed(LOW);
 
   strcpy(DEVICE_NAME, device_name_param.getValue());
   // save the custom parameters to FS
@@ -308,51 +240,35 @@ void setup() {
   //----------------------------------------------------------------------------------------------
   // Setup HTTP operation APIs
   //
+  
   Serial.println("starting HTTP...");
   HTTP.on("/switch/on", HTTP_GET, [](){
-    ledState = LOW;
-    digitalWrite(relay, !ledState);
-    digitalWrite(led, ledState);
-    HTTP.send(200, "application/json", "{\"switch\":1}");
+    if(relayState == LOW){
+      pushButtonRelay();
+    }
+    HTTP.send(200, "application/json", "{\"switch\":" + String(relayState) + "}");
   });
   HTTP.on("/switch/off", HTTP_GET, [](){
-    ledState = HIGH;
-    digitalWrite(relay, !ledState);
-    digitalWrite(led, ledState);
-    HTTP.send(200, "application/json", "{\"switch\":0}");
+    if(relayState == HIGH){
+      pushButtonRelay();
+    }
+    HTTP.send(200, "application/json", "{\"switch\":" + String(relayState) + "}");
   });
   HTTP.on("/switch/state", HTTP_GET, [](){
-    int val = digitalRead(relay);
-    if(val == 1){
-      HTTP.send(200, "application/json", "{\"switch\":1}");
-    } else {
-      HTTP.send(200, "application/json", "{\"switch\":0}");
-    }
-  });
-  HTTP.on("/description.xml", HTTP_GET, [](){
-    SSDP.schema(HTTP.client());
+    HTTP.send(200, "application/json", "{\"switch\":" + String(relayState) + "}");
   });
   HTTP.begin();
   //----------------------------------------------------------------------------------------------
 
   //----------------------------------------------------------------------------------------------
-  // Setup SSDP feature
+  // Wemo emulation
   //
-  Serial.println("starting SSDP...");
-  SSDP.setSchemaURL("description.xml");
-  SSDP.setHTTPPort(80);
-  SSDP.setDeviceType("urn:peach:device:Basic:1");
-  SSDP.setName(DEVICE_NAME);
-  SSDP.setSerialNumber(SERIAL_NUM);
-  SSDP.setURL("index.html");
-  SSDP.setModelName(DEVICE_MODEL); 
-  SSDP.setModelNumber(DEVICE_MODEL_NUM);
-  SSDP.setModelURL("https://www.peach-tech.com");
-  SSDP.setManufacturer("PeachTech");
-  SSDP.setManufacturerURL("https://www.peach-tech.com");
-  SSDP.begin();
-  //----------------------------------------------------------------------------------------------
+  
+  fauxmo.addDevice(DEVICE_NAME);
+  fauxmo.onMessage(wemoCallback);
 
+  //----------------------------------------------------------------------------------------------
+  
   Serial.println("Ready!");
   blinkLed(3, false);
 }
@@ -362,15 +278,16 @@ void setup() {
 //================================================================================================
 // Loop function
 //================================================================================================
-void loop() {
-  //----------------------------------------------------------------------------------------------
-  // MQTT connection handling
-  if (!client.connected()) {
-    reconnect(mqttClientName);
-  } else {
-    client.loop();
+void loop() 
+{
+  if(intRelayState == HIGH){
+    delay(1000);
+    Serial.println("Turning off relay");
+    digitalWrite(relay, LOW);
+    blinkLed(3, true);
+    writeLed(relayState);
+    intRelayState = LOW;
   }
-  //----------------------------------------------------------------------------------------------
   
   //----------------------------------------------------------------------------------------------
   // OTA handler
@@ -401,7 +318,7 @@ void loop() {
 
   if(restart.fell()){
     // restart triggered.
-    digitalWrite(led, LOW);
+    writeLed(HIGH);
   }
   if(restart.rose()){
     Serial.println("restarting device...");
@@ -410,14 +327,7 @@ void loop() {
   }
   
   if(toggle.rose()){
-    ledState = !ledState;
-    if(ledState == HIGH){
-      Serial.println("toggling device Off");
-    } else {
-      Serial.println("toggling device On");
-    }
-    digitalWrite(led, ledState);
-    digitalWrite(relay, !ledState);
+    pushButtonRelay();
   }
   //----------------------------------------------------------------------------------------------
 }
